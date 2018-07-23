@@ -69,6 +69,10 @@ def make_pos_windows(image_extent, label_store, options):
         return _make_label_pos_windows(image_extent, label_store, options)
     elif window_method == 'image':
         return [image_extent.make_copy()]
+    elif window_method == 'sliding':
+        chip_size = options.chip_size
+        stride = chip_size
+        return list(image_extent.get_windows(chip_size, stride))
     else:
         return _make_chip_pos_windows(image_extent, label_store, options)
 
