@@ -54,14 +54,6 @@ class TestBox(unittest.TestCase):
         geojson_coords = [nw, ne, se, sw, nw]
         self.assertEqual(self.box.geojson_coordinates(), geojson_coords)
 
-    def check_random_square(self, box, xlimit, ylimit, size):
-        self.assertEqual(box.get_width(), box.get_height())
-        self.assertEqual(box.get_width(), size)
-        self.assertLessEqual(box.xmax, xlimit)
-        self.assertLessEqual(box.ymax, ylimit)
-        self.assertGreaterEqual(box.xmin, 0)
-        self.assertGreaterEqual(box.ymin, 0)
-
     def test_make_random_square_container(self):
         size = 5
         nb_tests = 10
