@@ -171,12 +171,12 @@ class ChainWorkflow(object):
             self.workflow.compute_raster_stats_uri = join(
                 '{output_base}', '{}-{}'.format(
                     self.workflow.compute_raster_stats_uri,
-                    COMPUTE_RASTER_STATS,
+                    'stats',
                 ))
             self.workflow.make_training_chips_uri = join(
                 self.workflow.compute_raster_stats_uri, '{}-{}'.format(
                     self.workflow.make_training_chips_uri,
-                    MAKE_TRAINING_CHIPS))
+                    'chips'))
             self.workflow.train_uri = join(
                 self.workflow.make_training_chips_uri, '{}-{}'.format(
                     self.workflow.train_uri, TRAIN))
