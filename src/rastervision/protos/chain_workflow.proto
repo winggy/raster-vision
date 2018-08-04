@@ -83,11 +83,11 @@ message ChainWorkflowConfig {
     repeated Scene validation_scenes = 18;
 
     /*
-        test_scenes are scenes to make predictions on after training has taken place. If they contain
-        ground_truth_label_stores, they are used by the predict and eval
-        commands. If they don't, they are only used by the predict command. The
-        prediction_label_stores should not be included in these scenes as they
-        will be generated automatically.
+        test_scenes are scenes to make predictions on after training has taken
+        place. If they contain ground_truth_label_stores, they are used by the
+        predict and eval commands. If they don't, they are only used by the
+        predict command. The prediction_label_stores should not be included in
+        these scenes as they will be generated automatically.
     */
     repeated Scene test_scenes = 20;
 
