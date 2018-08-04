@@ -170,21 +170,22 @@ class ChainWorkflow(object):
         if self.workflow.nested_output:
             self.workflow.compute_raster_stats_uri = join(
                 '{output_base}', '{}-{}'.format(
+                    self.workflow.compute_raster_stats_uri,
                     COMPUTE_RASTER_STATS,
-                    self.workflow.compute_raster_stats_uri))
+                ))
             self.workflow.make_training_chips_uri = join(
                 self.workflow.compute_raster_stats_uri, '{}-{}'.format(
-                    MAKE_TRAINING_CHIPS,
-                    self.workflow.make_training_chips_uri))
+                    self.workflow.make_training_chips_uri,
+                    MAKE_TRAINING_CHIPS))
             self.workflow.train_uri = join(
                 self.workflow.make_training_chips_uri, '{}-{}'.format(
-                    TRAIN, self.workflow.train_uri))
+                    self.workflow.train_uri, TRAIN))
             self.workflow.predict_uri = join(
                 self.workflow.train_uri, '{}-{}'.format(
-                    PREDICT, self.workflow.predict_uri))
+                    self.workflow.predict_uri, PREDICT))
             self.workflow.eval_uri = join(
                 self.workflow.predict_uri, '{}-{}'.format(
-                    EVAL, self.workflow.eval_uri))
+                    self.workflow.eval_uri, EVAL))
 
     def uri_parameter_substitution(self):
         # Hack to deal with fact that fields set by default values are not
