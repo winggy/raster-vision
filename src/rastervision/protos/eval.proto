@@ -14,5 +14,5 @@ message EvalConfig {
 
     required MachineLearning machine_learning = 1;
     repeated Scene scenes = 4;
-    required Options options = 5;
+    optional Options options = 5;
 }

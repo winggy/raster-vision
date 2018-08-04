@@ -4,6 +4,7 @@ package rv.protos;
 
 import "rastervision/protos/machine_learning.proto";
 import "rastervision/protos/scene.proto";
+import "rastervision/protos/compute_raster_stats.proto";
 import "rastervision/protos/make_training_chips.proto";
 import "rastervision/protos/train.proto";
 import "rastervision/protos/predict.proto";
@@ -12,51 +13,6 @@ import "rastervision/protos/raster_transformer.proto";
 import "rastervision/protos/label_store.proto";
 
 message ChainWorkflowConfig {
-    /*
-        train_scenes are used by the make_training_chips and train commands to
-        generate chips to train the model. Each scene must contain a
-        ground_truth_label_store.
-    */
-    repeated Scene train_scenes = 1;
-
-    /*
-        validation_scenes are used by the make_training_chips, train, predict,
-        and eval commands to generate chips to evaluate the model. Each scene
-        must contain a ground_truth_label_store. The prediction_label_stores
-        should not be included in these scenes as they will be generated
-        automatically.
-    */
-    repeated Scene validation_scenes = 18;
-
-    /*
-        test_scenes are scenes to make predictions on after training has taken place. If they contain
-        ground_truth_label_stores, they are used by the predict and eval
-        commands. If they don't, they are only used by the predict command. The
-        prediction_label_stores should not be included in these scenes as they
-        will be generated automatically.
-    */
-    repeated Scene test_scenes = 20;
-
-    /*
-        The next set of fields are "default fields" used as defaults for
-        filling in missing fields during compilation. These are useful for
-        defining something once and automatically using it many times
-        throughout the config.
-    */
-    // Used to generate prediction_label_stores automatically for validation
-    // and test_scenes.
-    required LabelStore label_store = 21;
-    required MachineLearning machine_learning = 3;
-    required RasterTransformer raster_transformer = 5;
-    required int32 chip_size = 6;
-    required bool debug = 7;
-    // End "default fields"
-
-    // Map of parameters to values to use when doing parameter substitution on
-    // URIs (which must be in fields that end in _uri or _uris).
-    map<string, string> local_uri_map = 8;
-    map<string, string> remote_uri_map = 9;
-
     // Output URIs for each command. To use defaults, "output_base" must be
     // a parameter in the URI maps.
     optional string compute_raster_stats_uri = 19 [default="{output_base}/compute-raster-stats"];
@@ -90,11 +46,64 @@ message ChainWorkflowConfig {
     optional bool nested_output = 22 [default=false];
 
     /*
-        The configs for each of the commands. The scene sets and "default
-        fields" are used to fill in most of the fields automatically.
+        These are "default fields" used as defaults for missing
+        values.
     */
-    required MakeTrainingChipsConfig.Options make_training_chips_options = 14;
-    required TrainConfig.Options train_options = 15;
-    required PredictConfig.Options predict_options = 16;
-    required EvalConfig.Options eval_options = 17;
+    required RasterTransformer raster_transformer = 5;
+    required bool debug = 7;
+    // End "default fields"
+
+    /*
+        These are "override fields" used to override values to enforce
+        consistency across all commands.
+    */
+    required MachineLearning machine_learning = 3;
+    required int32 chip_size = 6;
+    // End "override fields"
+
+    // Used to generate prediction_label_stores automatically for validation
+    // and test_scenes. Also used as default values for any missing
+    // LabelStore fields.
+    required LabelStore label_store_template = 21;
+
+    /*
+        train_scenes are used by the make_training_chips and train commands to
+        generate chips to train the model. Each scene must contain a
+        ground_truth_label_store.
+    */
+    repeated Scene train_scenes = 1;
+
+    /*
+        validation_scenes are used by the make_training_chips, train, predict,
+        and eval commands to generate chips to evaluate the model. Each scene
+        must contain a ground_truth_label_store. The prediction_label_stores
+        should not be included in these scenes as they will be generated
+        automatically.
+    */
+    repeated Scene validation_scenes = 18;
+
+    /*
+        test_scenes are scenes to make predictions on after training has taken place. If they contain
+        ground_truth_label_stores, they are used by the predict and eval
+        commands. If they don't, they are only used by the predict command. The
+        prediction_label_stores should not be included in these scenes as they
+        will be generated automatically.
+    */
+    repeated Scene test_scenes = 20;
+
+    /*
+        The configs for each of the commands. The scene sets, "default
+        fields", and "override fields" are used to fill in most of the fields
+        automatically.
+    */
+    required ComputeRasterStatsConfig compute_raster_stats = 23;
+    required MakeTrainingChipsConfig make_training_chips = 14;
+    required TrainConfig train = 15;
+    required PredictConfig predict = 16;
+    required EvalConfig eval = 17;
+
+    // Map of parameters to values to use when doing parameter substitution on
+    // URIs (which must be in fields that end in _uri or _uris).
+    map<string, string> local_uri_map = 8;
+    map<string, string> remote_uri_map = 9;
 }

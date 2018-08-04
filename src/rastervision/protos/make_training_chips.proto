@@ -66,6 +66,6 @@ message MakeTrainingChipsConfig {
 
     repeated Scene train_scenes = 1;
     repeated Scene validation_scenes = 2;
-    required MachineLearning machine_learning = 3;
-    required Options options = 4;
+    optional MachineLearning machine_learning = 3;
+    optional Options options = 4;
 }

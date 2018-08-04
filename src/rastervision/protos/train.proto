@@ -40,6 +40,6 @@ message TrainConfig {
 
     }
 
-    required MachineLearning machine_learning = 1;
-    required Options options = 2;
+    optional MachineLearning machine_learning = 1;
+    optional Options options = 2;
 }

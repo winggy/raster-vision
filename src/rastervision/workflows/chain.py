@@ -1,4 +1,4 @@
-from os.path import join, isfile
+from os.path import join, isfile, dirname, basename
 import copy
 from urllib.parse import urlparse
 import subprocess
@@ -9,13 +9,6 @@ import boto3
 import botocore
 
 from rastervision.protos.chain_workflow_pb2 import ChainWorkflowConfig
-from rastervision.protos.compute_raster_stats_pb2 import (
-    ComputeRasterStatsConfig)
-from rastervision.protos.make_training_chips_pb2 import (
-    MakeTrainingChipsConfig)
-from rastervision.protos.train_pb2 import TrainConfig
-from rastervision.protos.predict_pb2 import PredictConfig
-from rastervision.protos.eval_pb2 import EvalConfig
 from rastervision.protos.label_store_pb2 import (
     LabelStore as LabelStoreConfig, ObjectDetectionGeoJSONFile as
     ObjectDetectionGeoJSONFileConfig, ClassificationGeoJSONFile as
@@ -33,13 +26,15 @@ PREDICT = 'predict'
 EVAL = 'eval'
 ALL_TASKS = [COMPUTE_RASTER_STATS, MAKE_TRAINING_CHIPS, TRAIN, PREDICT, EVAL]
 
-validated_uri_fields = set(
-    [('rv.protos.ObjectDetectionGeoJSONFile',
-      'uri'), ('rv.protos.ClassificationGeoJSONFile', 'uri'),
-     ('rv.protos.GeoTiffFiles', 'uris'), ('rv.protos.ImageFile', 'uri'),
-     ('rv.protos.TrainConfig.Options',
-      'backend_config_uri'), ('rv.protos.TrainConfig.Options',
-                              'pretrained_model_uri')])
+# yapf: disable
+validated_uri_fields = set([
+    ('rv.protos.ObjectDetectionGeoJSONFile', 'uri'),
+    ('rv.protos.ClassificationGeoJSONFile', 'uri'),
+    ('rv.protos.GeoTiffFiles', 'uris'),
+    ('rv.protos.ImageFile', 'uri'),
+    ('rv.protos.TrainConfig.Options', 'backend_config_uri'),
+    ('rv.protos.TrainConfig.Options', 'pretrained_model_uri')])
+# yapf: enable
 
 s3 = boto3.resource('s3')
 
@@ -156,15 +151,18 @@ class ChainWorkflow(object):
         self.workflow = load_json_config(workflow_uri, ChainWorkflowConfig())
         self.uri_map = (self.workflow.remote_uri_map
                         if remote else self.workflow.local_uri_map)
-        self.update_output_uris()
-        self.uri_parameter_substitution()
 
+    def update(self):
+        self.update_output_uris()
+        self.update_raster_transformer()
+        self.update_scenes()
+        self.update_command_configs()
+        self.update_uris()
+
+    def validate(self):
         is_valid = is_config_valid(self.workflow)
         if not is_valid:
             exit()
-
-        self.update_raster_transformer()
-        self.update_scenes()
 
     def update_output_uris(self):
         if self.workflow.nested_output:
@@ -187,7 +185,7 @@ class ChainWorkflow(object):
                 self.workflow.predict_uri, '{}-{}'.format(
                     self.workflow.eval_uri, EVAL))
 
-    def uri_parameter_substitution(self):
+    def update_uris(self):
         # Hack to deal with fact that fields set by default values are not
         # recognized by the ListFields method, which is called in
         # apply_uri_map.
@@ -270,8 +268,15 @@ class ChainWorkflow(object):
                 self.make_prediction_label_store(scene))
             self.update_scene('test', idx, scene)
 
-    def get_compute_raster_stats_config(self):
-        config = ComputeRasterStatsConfig()
+    def update_command_configs(self):
+        self.update_compute_raster_stats()
+        self.update_make_training_chips()
+        self.update_train()
+        self.update_predict()
+        self.update_eval()
+
+    def update_compute_raster_stats(self):
+        config = self.workflow.compute_raster_stats
         scenes = copy.deepcopy(self.workflow.train_scenes)
         scenes.extend(self.workflow.validation_scenes)
         scenes.extend(self.workflow.test_scenes)
@@ -283,53 +288,31 @@ class ChainWorkflow(object):
             raster_source.raster_transformer.stats_uri = ''
             config.raster_sources.extend([raster_source])
         config.stats_uri = self.workflow.raster_transformer.stats_uri
-        config = apply_uri_map(config, self.uri_map)
-        return config
 
-    def get_make_training_chips_config(self):
+    def update_make_training_chips(self):
         # If no validation scenes, use test scenes that contain
         # ground_truth_label_stores.
-        config = MakeTrainingChipsConfig()
+        config = self.workflow.make_training_chips
         config.train_scenes.MergeFrom(self.workflow.train_scenes)
         config.validation_scenes.MergeFrom(self.workflow.validation_scenes)
         config.machine_learning.MergeFrom(self.workflow.machine_learning)
-        config.options.MergeFrom(self.workflow.make_training_chips_options)
         config.options.chip_size = self.workflow.chip_size
         config.options.debug = self.workflow.debug
         config.options.output_uri = self.workflow.make_training_chips_uri
 
-        config = apply_uri_map(config, self.uri_map)
-        return config
-
-    def get_train_config(self):
-        config = TrainConfig()
+    def update_train(self):
+        config = self.workflow.train
         config.machine_learning.MergeFrom(self.workflow.machine_learning)
-        config.options.MergeFrom(self.workflow.train_options)
         config.options.training_data_uri = \
             self.workflow.make_training_chips_uri
         config.options.output_uri = \
             self.workflow.train_uri
 
-        # Copy backend config so that it is nested under model_uri. This way,
-        # all config files and corresponding output of RV will be located next
-        # to each other in the file system.
-        backend_config_copy_uri = join(self.workflow.train_uri,
-                                       'backend.config')
-        backend_config_uri = config.options.backend_config_uri.format(
-            **self.uri_map)
-        backend_config_str = file_to_str(backend_config_uri)
-        str_to_file(backend_config_str, backend_config_copy_uri)
-        config.options.backend_config_uri = backend_config_copy_uri
-
-        config = apply_uri_map(config, self.uri_map)
-        return config
-
-    def get_predict_config(self):
-        config = PredictConfig()
+    def update_predict(self):
+        config = self.workflow.predict
         config.machine_learning.MergeFrom(self.workflow.machine_learning)
         config.scenes.MergeFrom(self.workflow.validation_scenes)
         config.scenes.MergeFrom(self.workflow.test_scenes)
-        config.options.MergeFrom(self.workflow.predict_options)
         config.options.debug = self.workflow.debug
         config.options.debug_uri = join(self.workflow.predict_uri, 'debug')
         config.options.chip_size = self.workflow.chip_size
@@ -337,12 +320,8 @@ class ChainWorkflow(object):
         config.options.prediction_package_uri = join(self.workflow.predict_uri,
                                                      'predict-package.zip')
 
-        config = apply_uri_map(config, self.uri_map)
-
-        return config
-
-    def get_eval_config(self):
-        config = EvalConfig()
+    def update_eval(self):
+        config = self.workflow.eval
         config.machine_learning.MergeFrom(self.workflow.machine_learning)
         # Use test_scenes with ground_truth_label_stores as eval_scenes.
         eval_scenes = [
@@ -351,39 +330,41 @@ class ChainWorkflow(object):
         ]
         eval_scenes.extend(self.workflow.validation_scenes)
         config.scenes.MergeFrom(eval_scenes)
-        config.options.MergeFrom(self.workflow.eval_options)
         config.options.debug = self.workflow.debug
         config.options.output_uri = join(self.workflow.eval_uri, 'eval.json')
-        config = apply_uri_map(config, self.uri_map)
-        return config
 
     def save_configs(self, tasks):
         print('Generating and saving config files:')
 
         if COMPUTE_RASTER_STATS in tasks:
+            config = self.workflow.compute_raster_stats
             uri = get_config_uri(self.workflow.compute_raster_stats_uri)
             print(uri)
-            save_json_config(self.get_compute_raster_stats_config(), uri)
+            save_json_config(config, uri)
 
         if MAKE_TRAINING_CHIPS in tasks:
+            config = self.workflow.make_training_chips
             uri = get_config_uri(self.workflow.make_training_chips_uri)
             print(uri)
-            save_json_config(self.get_make_training_chips_config(), uri)
+            save_json_config(config, uri)
 
         if TRAIN in tasks:
+            config = self.workflow.train
             uri = get_config_uri(self.workflow.train_uri)
             print(uri)
-            save_json_config(self.get_train_config(), uri)
+            save_json_config(config, uri)
 
         if PREDICT in tasks:
+            config = self.workflow.predict
             uri = get_config_uri(self.workflow.predict_uri)
             print(uri)
-            save_json_config(self.get_predict_config(), uri)
+            save_json_config(config, uri)
 
         if EVAL in tasks:
+            config = self.workflow.eval
             uri = get_config_uri(self.workflow.eval_uri)
             print(uri)
-            save_json_config(self.get_eval_config(), uri)
+            save_json_config(config, uri)
 
     def remote_run(self, tasks, branch):
         if not is_branch_valid(branch):
@@ -477,6 +458,14 @@ def _main(workflow_uri,
             raise Exception("Task '{}' is not a valid task.".format(task))
 
     workflow = ChainWorkflow(workflow_uri, remote=(remote or simulated_remote))
+    workflow.update()
+    # workflow.validate()
+
+    compiled_workflow_uri = join(
+        dirname(workflow_uri),
+        'compiled-' + basename(workflow_uri))
+    save_json_config(workflow.workflow, compiled_workflow_uri)
+
     workflow.save_configs(tasks)
 
     if run:
