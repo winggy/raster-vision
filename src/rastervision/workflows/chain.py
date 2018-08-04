@@ -26,8 +26,8 @@ from rastervision.utils.files import (load_json_config, save_json_config,
 from rastervision.utils.batch import _batch_submit
 from rastervision import run
 
-COMPUTE_RASTER_STATS = 'compute_raster_stats'
-MAKE_TRAINING_CHIPS = 'make_training_chips'
+COMPUTE_RASTER_STATS = 'compute-raster-stats'
+MAKE_TRAINING_CHIPS = 'make-training-chips'
 TRAIN = 'train'
 PREDICT = 'predict'
 EVAL = 'eval'
@@ -48,39 +48,8 @@ def make_command(command, config_uri):
     return 'python -m rastervision.run {} {}'.format(command, config_uri)
 
 
-class PathGenerator(object):
-    def __init__(self, uri_map, raw_dataset_key, dataset_key, model_key,
-                 prediction_key, eval_key):
-        rv_root = uri_map['rv_root']
-        self.raw_dataset_uri = join(rv_root, 'rv-output', 'raw-datasets',
-                                    raw_dataset_key)
-        self.dataset_uri = join(self.raw_dataset_uri, 'datasets', dataset_key)
-        self.model_uri = join(self.dataset_uri, 'models', model_key)
-        self.prediction_uri = join(self.model_uri, 'predictions',
-                                   prediction_key)
-        self.eval_uri = join(self.prediction_uri, 'evals', eval_key)
-
-        self.compute_raster_stats_config_uri = self.get_config_uri(
-            self.raw_dataset_uri)
-        self.make_training_chips_config_uri = self.get_config_uri(
-            self.dataset_uri)
-        self.train_config_uri = self.get_config_uri(self.model_uri)
-        self.predict_config_uri = self.get_config_uri(self.prediction_uri)
-        self.eval_config_uri = self.get_config_uri(self.eval_uri)
-
-        self.compute_raster_stats_output_uri = self.get_output_uri(
-            self.raw_dataset_uri)
-        self.make_training_chips_output_uri = self.get_output_uri(
-            self.dataset_uri)
-        self.train_output_uri = self.get_output_uri(self.model_uri)
-        self.prediction_output_uri = self.get_output_uri(self.prediction_uri)
-        self.eval_output_uri = self.get_output_uri(self.eval_uri)
-
-    def get_config_uri(self, prefix_uri):
-        return join(prefix_uri, 'config.json')
-
-    def get_output_uri(self, prefix_uri):
-        return join(prefix_uri, 'output')
+def get_config_uri(prefix_uri):
+    return join(prefix_uri, 'config.json')
 
 
 def is_branch_valid(branch):
@@ -187,81 +156,78 @@ class ChainWorkflow(object):
         self.workflow = load_json_config(workflow_uri, ChainWorkflowConfig())
         self.uri_map = (self.workflow.remote_uri_map
                         if remote else self.workflow.local_uri_map)
-        is_valid = is_config_valid(apply_uri_map(self.workflow, self.uri_map))
+        self.update_output_uris()
+        self.uri_parameter_substitution()
+
+        is_valid = is_config_valid(self.workflow)
         if not is_valid:
             exit()
-
-        self.path_generator = PathGenerator(
-            self.uri_map, self.workflow.raw_dataset_key,
-            self.workflow.dataset_key, self.workflow.model_key,
-            self.workflow.prediction_key, self.workflow.eval_key)
 
         self.update_raster_transformer()
         self.update_scenes()
 
+    def update_output_uris(self):
+        if self.workflow.nested_output:
+            self.workflow.compute_raster_stats_uri = join(
+                '{output_base}', COMPUTE_RASTER_STATS,
+                self.workflow.compute_raster_stats_uri)
+            self.workflow.make_training_chips_uri = join(
+                self.workflow.compute_raster_stats_uri, MAKE_TRAINING_CHIPS,
+                self.workflow.make_training_chips_uri)
+            self.workflow.train_uri = join(
+                self.workflow.make_training_chips_uri, TRAIN,
+                self.workflow.train_uri)
+            self.workflow.predict_uri = join(self.workflow.train_uri, PREDICT,
+                                             self.workflow.predict_uri)
+            self.workflow.eval_uri = join(self.workflow.predict_uri, EVAL,
+                                          self.workflow.eval_uri)
+
+    def uri_parameter_substitution(self):
+        # Hack to deal with fact that fields set by default values are not
+        # recognized by the ListFields method, which is called in
+        # apply_uri_map.
+        self.workflow.compute_raster_stats_uri = \
+            self.workflow.compute_raster_stats_uri
+        self.workflow.make_training_chips_uri = \
+            self.workflow.make_training_chips_uri
+        self.workflow.train_uri = self.workflow.train_uri
+        self.workflow.predict_uri = self.workflow.predict_uri
+        self.workflow.eval_uri = self.workflow.eval_uri
+
+        self.workflow = apply_uri_map(self.workflow, self.uri_map)
+
     def update_raster_transformer(self):
-        stats_uri = join(self.path_generator.compute_raster_stats_output_uri,
-                         'stats.json')
+        stats_uri = join(self.workflow.compute_raster_stats_uri, 'stats.json')
         self.workflow.raster_transformer.stats_uri = stats_uri
 
-    def update_scenes(self):
-        """Fill in missing fields in all scenes."""
-        def update_label_store(label_store):
-            """Set label store options based on label_store_template."""
-            if not label_store:
-                return
+    def update_label_store(self, label_store):
+        """Set label store options based on label_store_template."""
+        if not label_store:
+            return
 
-            label_store_template = self.workflow.label_store_template
-            label_store_type = label_store_template.WhichOneof(
-                'label_store_type')
+        label_store_template = self.workflow.label_store_template
+        label_store_type = label_store_template.WhichOneof('label_store_type')
 
-            if label_store_type == 'object_detection_geojson_file':
-                template_options = \
-                    label_store_template.object_detection_geojson_file.options
-                if not label_store.object_detection_geojson_file.HasField(
-                        'options'):
-                    label_store.object_detection_geojson_file.options.MergeFrom(
-                        template_options)
-            elif label_store_type == 'classification_geojson_file':
-                template_options = \
-                    label_store_template.classification_geojson_file.options
-                if not label_store.classification_geojson_file.HasField(
-                        'options'):
-                    label_store.classification_geojson_file.options.MergeFrom(
-                        template_options)
-            else:
-                raise ValueError(
-                    'Not sure how to update label_store of type {}'
-                    .format(label_store_type))
-
-        def update_scene(prefix, idx, scene):
-            """Set id, raster_transformer, and options in label_stores."""
-            if len(scene.id) < 1:
-                scene.id = '{}-{}'.format(prefix, idx)
-            scene.raster_source.raster_transformer.MergeFrom(
-                self.workflow.raster_transformer)
-            if scene.HasField('prediction_label_store'):
-                update_label_store(scene.prediction_label_store)
-            if scene.HasField('ground_truth_label_store'):
-                update_label_store(scene.ground_truth_label_store)
-
-        # Update all scenes.
-        for idx, scene in enumerate(self.workflow.train_scenes):
-            update_scene('train', idx, scene)
-
-        for idx, scene in enumerate(self.workflow.validation_scenes):
-            scene.prediction_label_store.MergeFrom(
-                self.make_prediction_label_store(scene))
-            update_scene('validation', idx, scene)
-
-        for idx, scene in enumerate(self.workflow.test_scenes):
-            scene.prediction_label_store.MergeFrom(
-                self.make_prediction_label_store(scene))
-            update_scene('test', idx, scene)
+        if label_store_type == 'object_detection_geojson_file':
+            template_options = \
+                label_store_template.object_detection_geojson_file.options
+            if not label_store.object_detection_geojson_file.HasField(
+                    'options'):
+                label_store.object_detection_geojson_file.options.MergeFrom(
+                    template_options)
+        elif label_store_type == 'classification_geojson_file':
+            template_options = \
+                label_store_template.classification_geojson_file.options
+            if not label_store.classification_geojson_file.HasField('options'):
+                label_store.classification_geojson_file.options.MergeFrom(
+                    template_options)
+        else:
+            raise ValueError('Not sure how to update label_store of type {}'
+                             .format(label_store_type))
 
     def make_prediction_label_store(self, scene):
         """Make prediction_label_store based on scene.id"""
-        prediction_uri = join(self.path_generator.prediction_output_uri,
+        prediction_uri = join(self.workflow.predict_uri,
                               '{}.json'.format(scene.id))
 
         label_store_template = self.workflow.label_store_template
@@ -272,6 +238,32 @@ class ChainWorkflow(object):
         elif label_store_type == 'classification_geojson_file':
             geojson_file = ClassificationGeoJSONFileConfig(uri=prediction_uri)
             return LabelStoreConfig(classification_geojson_file=geojson_file)
+
+    def update_scene(self, prefix, idx, scene):
+        """Set id, raster_transformer, and options in label_stores."""
+        if len(scene.id) < 1:
+            scene.id = '{}-{}'.format(prefix, idx)
+        scene.raster_source.raster_transformer.MergeFrom(
+            self.workflow.raster_transformer)
+        if scene.HasField('prediction_label_store'):
+            self.update_label_store(scene.prediction_label_store)
+        if scene.HasField('ground_truth_label_store'):
+            self.update_label_store(scene.ground_truth_label_store)
+
+    def update_scenes(self):
+        """Fill in missing fields in all scenes."""
+        for idx, scene in enumerate(self.workflow.train_scenes):
+            self.update_scene('train', idx, scene)
+
+        for idx, scene in enumerate(self.workflow.validation_scenes):
+            scene.prediction_label_store.MergeFrom(
+                self.make_prediction_label_store(scene))
+            self.update_scene('validation', idx, scene)
+
+        for idx, scene in enumerate(self.workflow.test_scenes):
+            scene.prediction_label_store.MergeFrom(
+                self.make_prediction_label_store(scene))
+            self.update_scene('test', idx, scene)
 
     def get_compute_raster_stats_config(self):
         config = ComputeRasterStatsConfig()
@@ -299,8 +291,7 @@ class ChainWorkflow(object):
         config.options.MergeFrom(self.workflow.make_training_chips_options)
         config.options.chip_size = self.workflow.chip_size
         config.options.debug = self.workflow.debug
-        config.options.output_uri = \
-            self.path_generator.make_training_chips_output_uri
+        config.options.output_uri = self.workflow.make_training_chips_uri
 
         config = apply_uri_map(config, self.uri_map)
         return config
@@ -310,14 +301,14 @@ class ChainWorkflow(object):
         config.machine_learning.MergeFrom(self.workflow.machine_learning)
         config.options.MergeFrom(self.workflow.train_options)
         config.options.training_data_uri = \
-            self.path_generator.make_training_chips_output_uri
+            self.workflow.make_training_chips_uri
         config.options.output_uri = \
-            self.path_generator.train_output_uri
+            self.workflow.train_uri
 
         # Copy backend config so that it is nested under model_uri. This way,
         # all config files and corresponding output of RV will be located next
         # to each other in the file system.
-        backend_config_copy_uri = join(self.path_generator.model_uri,
+        backend_config_copy_uri = join(self.workflow.train_uri,
                                        'backend.config')
         backend_config_uri = config.options.backend_config_uri.format(
             **self.uri_map)
@@ -335,13 +326,11 @@ class ChainWorkflow(object):
         config.scenes.MergeFrom(self.workflow.test_scenes)
         config.options.MergeFrom(self.workflow.predict_options)
         config.options.debug = self.workflow.debug
-        config.options.debug_uri = join(
-            self.path_generator.prediction_output_uri, 'debug')
+        config.options.debug_uri = join(self.workflow.predict_uri, 'debug')
         config.options.chip_size = self.workflow.chip_size
-        config.options.model_uri = join(self.path_generator.train_output_uri,
-                                        'model')
-        config.options.prediction_package_uri = join(
-            self.path_generator.prediction_output_uri, 'predict-package.zip')
+        config.options.model_uri = join(self.workflow.train_uri, 'model')
+        config.options.prediction_package_uri = join(self.workflow.predict_uri,
+                                                     'predict-package.zip')
 
         config = apply_uri_map(config, self.uri_map)
 
@@ -359,35 +348,37 @@ class ChainWorkflow(object):
         config.scenes.MergeFrom(eval_scenes)
         config.options.MergeFrom(self.workflow.eval_options)
         config.options.debug = self.workflow.debug
-        config.options.output_uri = join(self.path_generator.eval_output_uri,
-                                         'eval.json')
+        config.options.output_uri = join(self.workflow.eval_uri, 'eval.json')
         config = apply_uri_map(config, self.uri_map)
         return config
 
     def save_configs(self, tasks):
-        print('Generating and saving config files...')
+        print('Generating and saving config files:')
 
         if COMPUTE_RASTER_STATS in tasks:
-            save_json_config(
-                self.get_compute_raster_stats_config(),
-                self.path_generator.compute_raster_stats_config_uri)
+            uri = get_config_uri(self.workflow.compute_raster_stats_uri)
+            print(uri)
+            save_json_config(self.get_compute_raster_stats_config(), uri)
 
         if MAKE_TRAINING_CHIPS in tasks:
-            save_json_config(
-                self.get_make_training_chips_config(),
-                self.path_generator.make_training_chips_config_uri)
+            uri = get_config_uri(self.workflow.make_training_chips_uri)
+            print(uri)
+            save_json_config(self.get_make_training_chips_config(), uri)
 
         if TRAIN in tasks:
-            save_json_config(self.get_train_config(),
-                             self.path_generator.train_config_uri)
+            uri = get_config_uri(self.workflow.train_uri)
+            print(uri)
+            save_json_config(self.get_train_config(), uri)
 
         if PREDICT in tasks:
-            save_json_config(self.get_predict_config(),
-                             self.path_generator.predict_config_uri)
+            uri = get_config_uri(self.workflow.predict_uri)
+            print(uri)
+            save_json_config(self.get_predict_config(), uri)
 
         if EVAL in tasks:
-            save_json_config(self.get_eval_config(),
-                             self.path_generator.eval_config_uri)
+            uri = get_config_uri(self.workflow.eval_uri)
+            print(uri)
+            save_json_config(self.get_eval_config(), uri)
 
     def remote_run(self, tasks, branch):
         if not is_branch_valid(branch):
@@ -400,14 +391,14 @@ class ChainWorkflow(object):
         if COMPUTE_RASTER_STATS in tasks:
             command = make_command(
                 COMPUTE_RASTER_STATS,
-                self.path_generator.compute_raster_stats_config_uri)
+                get_config_uri(self.workflow.compute_raster_stats_uri))
             job_id = _batch_submit(branch, command, attempts=1, gpu=True)
             parent_job_ids = [job_id]
 
         if MAKE_TRAINING_CHIPS in tasks:
             command = make_command(
                 MAKE_TRAINING_CHIPS,
-                self.path_generator.make_training_chips_config_uri)
+                get_config_uri(self.workflow.make_training_chips_uri))
             job_id = _batch_submit(
                 branch,
                 command,
@@ -417,7 +408,8 @@ class ChainWorkflow(object):
             parent_job_ids = [job_id]
 
         if TRAIN in tasks:
-            command = make_command(TRAIN, self.path_generator.train_config_uri)
+            command = make_command(TRAIN,
+                                   get_config_uri(self.workflow.train_uri))
             job_id = _batch_submit(
                 branch,
                 command,
@@ -428,7 +420,7 @@ class ChainWorkflow(object):
 
         if PREDICT in tasks:
             command = make_command(PREDICT,
-                                   self.path_generator.predict_config_uri)
+                                   get_config_uri(self.workflow.predict_uri))
             job_id = _batch_submit(
                 branch,
                 command,
@@ -438,7 +430,8 @@ class ChainWorkflow(object):
             parent_job_ids = [job_id]
 
         if EVAL in tasks:
-            command = make_command(EVAL, self.path_generator.eval_config_uri)
+            command = make_command(EVAL,
+                                   get_config_uri(self.workflow.eval_uri))
             job_id = _batch_submit(
                 branch,
                 command,
@@ -449,20 +442,20 @@ class ChainWorkflow(object):
     def local_run(self, tasks):
         if COMPUTE_RASTER_STATS in tasks:
             run._compute_raster_stats(
-                self.path_generator.compute_raster_stats_config_uri)
+                get_config_uri(self.workflow.compute_raster_stats_uri))
 
         if MAKE_TRAINING_CHIPS in tasks:
             run._make_training_chips(
-                self.path_generator.make_training_chips_config_uri)
+                get_config_uri(self.workflow.make_training_chips_uri))
 
         if TRAIN in tasks:
-            run._train(self.path_generator.train_config_uri)
+            run._train(get_config_uri(self.workflow.train_uri))
 
         if PREDICT in tasks:
-            run._predict(self.path_generator.predict_config_uri)
+            run._predict(get_config_uri(self.workflow.predict_uri))
 
         if EVAL in tasks:
-            run._eval(self.path_generator.eval_config_uri)
+            run._eval(get_config_uri(self.workflow.eval_uri))
 
 
 def _main(workflow_uri,
