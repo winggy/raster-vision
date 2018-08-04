@@ -205,55 +205,80 @@ class ChainWorkflow(object):
         self.workflow.raster_transformer.stats_uri = stats_uri
 
     def update_scenes(self):
-        for idx, scene in enumerate(self.workflow.train_scenes):
+        """Fill in missing fields in all scenes."""
+        def update_label_store(label_store):
+            """Set label store options based on label_store_template."""
+            if not label_store:
+                return
+
+            label_store_template = self.workflow.label_store_template
+            label_store_type = label_store_template.WhichOneof(
+                'label_store_type')
+
+            if label_store_type == 'object_detection_geojson_file':
+                template_options = \
+                    label_store_template.object_detection_geojson_file.options
+                if not label_store.object_detection_geojson_file.HasField(
+                        'options'):
+                    label_store.object_detection_geojson_file.options.MergeFrom(
+                        template_options)
+            elif label_store_type == 'classification_geojson_file':
+                template_options = \
+                    label_store_template.classification_geojson_file.options
+                if not label_store.classification_geojson_file.HasField(
+                        'options'):
+                    label_store.classification_geojson_file.options.MergeFrom(
+                        template_options)
+            else:
+                raise ValueError(
+                    'Not sure how to update label_store of type {}'
+                    .format(label_store_type))
+
+        def update_scene(prefix, idx, scene):
+            """Set id, raster_transformer, and options in label_stores."""
             if len(scene.id) < 1:
-                scene.id = 'train-{}'.format(idx)
-            # Set raster_tranformer for raster_sources
+                scene.id = '{}-{}'.format(prefix, idx)
             scene.raster_source.raster_transformer.MergeFrom(
                 self.workflow.raster_transformer)
+            if scene.HasField('prediction_label_store'):
+                update_label_store(scene.prediction_label_store)
+            if scene.HasField('ground_truth_label_store'):
+                update_label_store(scene.ground_truth_label_store)
+
+        # Update all scenes.
+        for idx, scene in enumerate(self.workflow.train_scenes):
+            update_scene('train', idx, scene)
+
+        for idx, scene in enumerate(self.workflow.validation_scenes):
+            scene.prediction_label_store.MergeFrom(
+                self.make_prediction_label_store(scene))
+            update_scene('validation', idx, scene)
 
         for idx, scene in enumerate(self.workflow.test_scenes):
-            if len(scene.id) < 1:
-                scene.id = 'eval-{}'.format(idx)
-            scene.raster_source.raster_transformer.MergeFrom(
-                self.workflow.raster_transformer)
-
-            # Set prediction_label_store from generated URI.
             scene.prediction_label_store.MergeFrom(
                 self.make_prediction_label_store(scene))
-
-        for idx, scene in enumerate(self.workflow.predict_scenes):
-            if len(scene.id) < 1:
-                scene.id = 'predict-{}'.format(idx)
-            scene.raster_source.raster_transformer.MergeFrom(
-                self.workflow.raster_transformer)
-
-            # Set prediction_label_store from generated URI.
-            scene.prediction_label_store.MergeFrom(
-                self.make_prediction_label_store(scene))
+            update_scene('test', idx, scene)
 
     def make_prediction_label_store(self, scene):
-        label_store = scene.ground_truth_label_store
-        label_store_type = label_store.WhichOneof('label_store_type')
+        """Make prediction_label_store based on scene.id"""
         prediction_uri = join(self.path_generator.prediction_output_uri,
                               '{}.json'.format(scene.id))
 
+        label_store_template = self.workflow.label_store_template
+        label_store_type = label_store_template.WhichOneof('label_store_type')
         if label_store_type == 'object_detection_geojson_file':
             geojson_file = ObjectDetectionGeoJSONFileConfig(uri=prediction_uri)
             return LabelStoreConfig(object_detection_geojson_file=geojson_file)
         elif label_store_type == 'classification_geojson_file':
             geojson_file = ClassificationGeoJSONFileConfig(uri=prediction_uri)
             return LabelStoreConfig(classification_geojson_file=geojson_file)
-        else:
-            raise ValueError(
-                'Not sure how to generate label source config for type {}'
-                .format(label_store_type))
 
     def get_compute_raster_stats_config(self):
         config = ComputeRasterStatsConfig()
         scenes = copy.deepcopy(self.workflow.train_scenes)
+        scenes.extend(self.workflow.validation_scenes)
         scenes.extend(self.workflow.test_scenes)
-        scenes.extend(self.workflow.predict_scenes)
+
         for scene in scenes:
             # Set the raster_transformer so its fields are null since
             # compute_raster_stats will generate stats_uri.
@@ -265,9 +290,11 @@ class ChainWorkflow(object):
         return config
 
     def get_make_training_chips_config(self):
+        # If no validation scenes, use test scenes that contain
+        # ground_truth_label_stores.
         config = MakeTrainingChipsConfig()
         config.train_scenes.MergeFrom(self.workflow.train_scenes)
-        config.validation_scenes.MergeFrom(self.workflow.test_scenes)
+        config.validation_scenes.MergeFrom(self.workflow.validation_scenes)
         config.machine_learning.MergeFrom(self.workflow.machine_learning)
         config.options.MergeFrom(self.workflow.make_training_chips_options)
         config.options.chip_size = self.workflow.chip_size
@@ -304,8 +331,8 @@ class ChainWorkflow(object):
     def get_predict_config(self):
         config = PredictConfig()
         config.machine_learning.MergeFrom(self.workflow.machine_learning)
+        config.scenes.MergeFrom(self.workflow.validation_scenes)
         config.scenes.MergeFrom(self.workflow.test_scenes)
-        config.scenes.MergeFrom(self.workflow.predict_scenes)
         config.options.MergeFrom(self.workflow.predict_options)
         config.options.debug = self.workflow.debug
         config.options.debug_uri = join(
@@ -317,12 +344,19 @@ class ChainWorkflow(object):
             self.path_generator.prediction_output_uri, 'predict-package.zip')
 
         config = apply_uri_map(config, self.uri_map)
+
         return config
 
     def get_eval_config(self):
         config = EvalConfig()
         config.machine_learning.MergeFrom(self.workflow.machine_learning)
-        config.scenes.MergeFrom(self.workflow.test_scenes)
+        # Use test_scenes with ground_truth_label_stores as eval_scenes.
+        eval_scenes = [
+            scene for scene in self.workflow.test_scenes
+            if scene.HasField('ground_truth_label_store')
+        ]
+        eval_scenes.extend(self.workflow.validation_scenes)
+        config.scenes.MergeFrom(eval_scenes)
         config.options.MergeFrom(self.workflow.eval_options)
         config.options.debug = self.workflow.debug
         config.options.output_uri = join(self.path_generator.eval_output_uri,

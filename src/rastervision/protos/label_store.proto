@@ -3,7 +3,11 @@ syntax = "proto2";
 package rv.protos;
 
 message ObjectDetectionGeoJSONFile {
+    message Options {
+    }
+
     required string uri = 1;
+    optional Options options = 2;
 }
 
 message ClassificationGeoJSONFile {
@@ -33,7 +37,7 @@ message ClassificationGeoJSONFile {
         optional bool infer_cells = 5 [default=false];
     }
 
-    required string uri = 1;
+    optional string uri = 1;
     optional Options options = 2;
 }
 
