@@ -16,6 +16,7 @@ message ChainWorkflowConfig {
     required int32 chip_size = 2;
     repeated Scene train_scenes = 3;
     repeated Scene validation_scenes = 4;
+    repeated Scene test_scenes = 15;
 
     // Output directories for commands
     required string compute_stats_uri = 5;
@@ -23,6 +24,12 @@ message ChainWorkflowConfig {
     required string train_uri = 7;
     required string predict_uri = 8;
     required string eval_uri = 9;
+
+    required string compute_stats_config_uri = 16;
+    required string make_chips_config_uri = 17;
+    required string train_config_uri = 18;
+    required string predict_config_uri = 19;
+    required string eval_config_uri = 20;
 
     required ComputeRasterStatsConfig compute_stats = 10;
     required MakeTrainingChipsConfig make_chips = 11;

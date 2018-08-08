@@ -6,26 +6,26 @@ from rastervision.builders import (compute_raster_stats_builder,
 from rastervision.commands.predict_package import PredictPackage
 
 
-def _compute_raster_stats(config_uri):
+def _compute_stats(config_uri):
     command = compute_raster_stats_builder.build(config_uri)
     command.run()
 
 
 @click.command()
 @click.argument('config_uri')
-def compute_raster_stats(config_uri):
-    _compute_raster_stats(config_uri)
+def compute_stats(config_uri):
+    _compute_stats(config_uri)
 
 
-def _make_training_chips(config_uri):
+def _make_chips(config_uri):
     command = make_training_chips_builder.build(config_uri)
     command.run()
 
 
 @click.command()
 @click.argument('config_uri')
-def make_training_chips(config_uri):
-    _make_training_chips(config_uri)
+def make_chips(config_uri):
+    _make_chips(config_uri)
 
 
 def _train(config_uri):
@@ -115,8 +115,8 @@ def run():
     pass
 
 
-run.add_command(compute_raster_stats)
-run.add_command(make_training_chips)
+run.add_command(compute_stats)
+run.add_command(make_chips)
 run.add_command(train)
 run.add_command(predict)
 run.add_command(predict_package)
