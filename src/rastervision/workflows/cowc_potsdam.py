@@ -5,6 +5,8 @@ from rastervision.workflows.config_utils import (
 from rastervision.workflows.chain_utils import (
     ChainWorkflowPaths, ChainWorkflowConfigGenerator,
     ChainWorkflow)
+from rastervision.workflows.backend_utils import (
+    get_pretrained_model_uri, save_backend_config, make_backend_config_uri)
 
 
 class CowcPotsdamPaths():
@@ -39,7 +41,6 @@ class TinyCowcPotsdamPaths():
 
 
 def generate_workflow(workflow_uri, isprs_potsdam_uri, cowc_potsdam_uri,
-                      backend_config_uri, pretrained_model_uri,
                       use_tiny_dataset=False, task=OD):
     class_names = ['car']
     # if task == CL:
@@ -69,8 +70,7 @@ def generate_workflow(workflow_uri, isprs_potsdam_uri, cowc_potsdam_uri,
     validation_scenes = [make_scene(id) for id in validation_scene_ids]
 
     workflow = ChainWorkflow(
-        paths, model_config, train_scenes, validation_scenes,
-        backend_config_uri, pretrained_model_uri)
+        paths, model_config, train_scenes, validation_scenes)
     workflow.save()
 
 
@@ -80,17 +80,11 @@ def main():
     isprs_potsdam_uri = '/opt/data/raw-data/isprs-potsdam'
     cowc_potsdam_uri = '/opt/data/lf-dev/processed-data/cowc-potsdam'
     use_tiny_dataset = True
-    task = CL
-    if task == OD:
-        backend_config_uri = '/opt/data/lf-dev/backend-configs/tf-object-detection-api/mobilenet-test.config'
-        pretrained_model_uri = '/opt/data/lf-dev/pretrained-models/tf-object-detection-api/ssd_mobilenet_v1_coco_2017_11_17.tar.gz'
-    elif task == CL:
-        backend_config_uri = '/opt/data/lf-dev/backend-configs/keras-classification/resnet50-test.json'
-        pretrained_model_uri = ''
+    task = OD
 
     generate_workflow(
-        workflow_uri, isprs_potsdam_uri, cowc_potsdam_uri, backend_config_uri,
-        pretrained_model_uri, use_tiny_dataset, task)
+        workflow_uri, isprs_potsdam_uri, cowc_potsdam_uri,
+        use_tiny_dataset, task)
 
 
 if __name__ == '__main__':

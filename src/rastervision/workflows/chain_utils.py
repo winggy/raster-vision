@@ -10,12 +10,15 @@ from rastervision.workflows.config_utils import (
     PREDICT, EVAL, ALL_COMMANDS, make_model_config)
 from rastervision.utils.files import save_json_config
 from rastervision.protos.chain_workflow_pb2 import ChainWorkflowConfig
+from rastervision.workflows.backend_utils import (
+    get_pretrained_model_uri, save_backend_config, make_backend_config_uri)
 
 
 class ChainWorkflowPaths():
     def __init__(self, base_uri, compute_stats_uri=None, make_chips_uri=None,
                  train_uri=None, predict_uri=None, eval_uri=None,
                  workflow_uri=None):
+        self.base_uri = base_uri
         self.compute_stats_uri = (compute_stats_uri if compute_stats_uri else join(base_uri, COMPUTE_STATS))
         self.make_chips_uri = (make_chips_uri if make_chips_uri else join(base_uri, MAKE_CHIPS))
         self.train_uri = (train_uri if train_uri else join(base_uri, TRAIN))
@@ -61,8 +64,8 @@ class ChainWorkflow(object):
             model_config,
             train_scenes,
             validation_scenes,
-            backend_config_uri,
-            pretrained_model_uri,
+            backend_config_uri=None,
+            pretrained_model_uri=None,
             sync_interval=600,
             test_scenes=None,
             chip_size=300,
@@ -73,6 +76,17 @@ class ChainWorkflow(object):
         self.model_config = model_config
         self.train_scenes = train_scenes
         self.validation_scenes = validation_scenes
+
+        if backend_config_uri is None:
+            backend_config_uri = make_backend_config_uri(paths.base_uri)
+            num_classes = len(model_config.class_items)
+            save_backend_config(
+                backend_config_uri, model_config.backend, num_classes)
+
+        if pretrained_model_uri is None:
+            pretrained_model_uri = get_pretrained_model_uri(
+                model_config.backend)
+
         self.backend_config_uri = backend_config_uri
         self.pretrained_model_uri = pretrained_model_uri
         self.sync_interval = sync_interval
